@@ -130,7 +130,7 @@ export function Login({ onLogin, onForgot }) {
         </View>
 
         <Text style={[s.mut, { textAlign: 'center', marginTop: 20 }]}>
-          Cần hỗ trợ? Liên hệ [Phòng CNTT nhà trường]
+          Cần hỗ trợ? Liên hệ với nhà trường
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
