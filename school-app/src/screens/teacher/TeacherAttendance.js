@@ -4,9 +4,7 @@ import { Header } from '../../components/Header';
 import { Pills } from '../../components/Pills';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
-import { loadTeaching, loadRoster, classOptions, focusLesson, todayYMD, p2 } from '../../lib/teacher';
+import { loadTeaching, loadRoster, saveAttendance, classOptions, focusLesson, todayYMD, p2 } from '../../lib/teacher';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -40,7 +38,7 @@ export function TeacherAttendance({ profile }) {
         // Không tự ghi giờ vào lớp: giữ giờ quét cổng cũ (nếu có), vắng thì xóa
         return { student_id: st.id, day, status, checkin_at: status === 'absent' ? null : (r.att[st.id]?.checkin_at ?? null) };
       });
-      unwrap(await supabase.from('attendance').upsert(rows, { onConflict: 'student_id,day' }));
+      await saveAttendance(clsId, day, rows);
       setEdits({});
       await roster.reload();
       Alert.alert('Đã lưu', `Có mặt ${n}/${rows.length} học sinh.`);

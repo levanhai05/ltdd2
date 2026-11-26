@@ -28,16 +28,19 @@ async function getTarget(uid) {
 
 // ---------- Tài khoản ----------
 
-// GET /api/admin/users?role=&q=&limit=&offset=
+// GET /api/admin/users?role=&q=&limit=&offset=&sort=username|recent
 r.get('/users', async (req, res) => {
   const q = parse(z.object({
     role: z.enum(['parent', 'teacher', 'guard']).optional(),
     q: z.string().trim().max(50).optional(),
     limit: z.coerce.number().int().min(1).max(300).default(100),
     offset: z.coerce.number().int().min(0).default(0),
+    sort: z.enum(['username', 'recent']).default('username'),
   }), req.query);
   let b = admin.from('profiles').select('id, username, full_name, role, phone, active, created_at', { count: 'exact' })
-    .neq('role', 'admin').order('username').range(q.offset, q.offset + q.limit - 1);
+    .neq('role', 'admin')
+    .order(...(q.sort === 'recent' ? ['created_at', { ascending: false }] : ['username']))
+    .range(q.offset, q.offset + q.limit - 1);
   if (q.role) b = b.eq('role', q.role);
   if (q.q) {
     const s = q.q.replace(/[%,()]/g, ' ');

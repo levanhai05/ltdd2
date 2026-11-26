@@ -1,3 +1,4 @@
+
 import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,11 +8,9 @@ import { BadgeTiles } from '../../components/BadgeTiles';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
 import { useHardwareBack } from '../../hooks/useHardwareBack';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
 import {
-  loadStudent, loadClassLessons, loadHomework, loadNotices, focusLesson, hm, roomLabel,
-  fmtVND, todayYMD,
+  loadStudent, loadClassLessons, loadHomework, loadNotices, loadAttendance, loadFees, loadLeaves,
+  focusLesson, hm, roomLabel, fmtVND, todayYMD,
 } from '../../lib/parent';
 import { ATT_STATUS } from '../../data/studentMock';
 import { StudentAttendance } from '../student/StudentAttendance';
@@ -25,18 +24,20 @@ import { C } from '../../theme';
 
 // Tải toàn bộ số liệu tổng quan trong 1 lần
 async function loadHome(profile) {
-  const st = await loadStudent(profile.id);
-  const [lessons, att, fees, leaves, hw, notices] = await Promise.all([
-    loadClassLessons(st.class_id),
-    supabase.from('attendance').select('status, checkin_at').eq('student_id', st.id).eq('day', todayYMD()).maybeSingle(),
-    supabase.from('fees').select('id, amount, paid').eq('student_id', st.id).eq('paid', false),
-    supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('student_id', st.id).eq('status', 'pending'),
-    loadHomework(st),
-    loadNotices(profile.id, st),
+  const st = await loadStudent();
+  const [lessons, attList, fees, leaves, hw, notices] = await Promise.all([
+    loadClassLessons(),
+    loadAttendance(st.id, 1),
+    loadFees(),
+    loadLeaves(),
+    loadHomework(),
+    loadNotices(),
   ]);
   return {
-    st, lessons, att: unwrap(att), due: unwrap(fees),
-    pendingLeaves: leaves.error ? 0 : leaves.count || 0,
+    st, lessons,
+    att: attList[0]?.day === todayYMD() ? attList[0] : null,      // điểm danh hôm nay (nếu có)
+    due: fees.filter(f => !f.paid),
+    pendingLeaves: leaves.filter(l => l.status === 'pending').length,
     pendingHw: hw.filter(h => !h.done).length, notices,
   };
 }

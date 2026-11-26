@@ -33,15 +33,16 @@ ESP32  ──────────(x-device-key)─────────�
 | Auth | `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me`, `POST /auth/change-password` | — / đã đăng nhập |
 | Admin | `GET /admin/users`, `POST /admin/users`, `PATCH /admin/users/:id/active`, `POST /admin/users/:id/reset-password` | admin |
 | | `GET /admin/summary`, `GET /admin/stats/attendance`, `GET /admin/logs`, `PATCH /admin/emergency-contacts/:id` | admin |
+| | `GET /admin/users` nhận thêm `sort=recent` để lấy tài khoản mới cấp trước | admin |
 | Thông báo | `GET /notices`, `GET /notices/sent`, `POST /notices`, `POST /notices/read` | đã đăng nhập (gửi: admin, teacher) |
-| Tin nhắn | `GET /messages/contacts`, `GET /messages/with/:userId`, `POST /messages` | parent, teacher |
+| Tin nhắn | `GET /messages/contacts`, `GET /messages/recent`, `GET /messages/with/:userId`, `POST /messages` | parent, teacher |
 | Phụ huynh | `GET /parent/student`, `schedule`, `grades`, `attendance`, `homework`, `fees`, `leaves`, `bus` | parent |
-| | `PUT /parent/homework/:id`, `POST /parent/fees/:id/pay`, `POST /parent/leaves`, `PUT /parent/bus/ride` | parent |
+| | `PUT /parent/homework/:id`, `POST /parent/fees/:id/pay`, `POST /parent/fees/pay` (nhiều khoản), `POST /parent/leaves`, `DELETE /parent/leaves/:id` (đơn còn chờ), `PUT /parent/bus/ride` | parent |
 | Giáo viên | `GET /teacher/teaching`, `GET /teacher/classes/:classId/roster`, `PUT .../attendance`, `GET .../grades` | teacher |
 | | `POST/PATCH/DELETE /teacher/grades`, `GET/POST/PATCH/DELETE /teacher/homework`, `GET /teacher/homework/:id/submissions` | teacher |
 | | `GET /teacher/leaves`, `PATCH /teacher/leaves/:id` (chỉ GVCN) | teacher |
 | Bảo vệ | `GET/POST /guard/visitors`, `PATCH /guard/visitors/:id/checkout`, `GET/POST/PATCH /guard/incidents` | guard, admin |
-| | `GET /guard/patrol/checkpoints`, `GET /guard/patrol/logs`, `POST /guard/patrol`, `GET /guard/emergency-contacts` | guard, admin |
+| | `GET /guard/patrol/checkpoints`, `GET /guard/patrol/logs` (`?recent=true&limit=10` để xem các lượt gần nhất),  `POST /guard/patrol`, `GET /guard/emergency-contacts` | guard, admin |
 | Thiết bị | `GET /devices`, `PATCH /devices/:id`, `POST /devices/turn-off` | đọc: mọi vai trò; ghi: guard, admin |
 | IoT (ESP32) | `GET /iot/state`, `POST /iot/state` (header `x-device-key`) | thiết bị |
 
@@ -84,8 +85,9 @@ const r = await api('/admin/users', {
 });
 ```
 
-Nên chuyển dần từng màn hình, bắt đầu từ các màn dùng RPC (`AdminCreate`, `AdminAccounts`, `AdminHome`, `TeacherAnnounce`)
-vì đó là chỗ đang thiếu backend thật.
+**Trạng thái hiện tại:** toàn bộ màn hình của app đã gọi qua backend (file `src/lib/api.js`), kể cả đăng nhập
+(`POST /auth/login` rồi `supabase.auth.setSession`). App chỉ còn dùng Supabase trực tiếp cho **phiên đăng nhập (làm mới token)**
+và **Realtime** (tin nhắn, thiết bị).
 
 ## 5. Lưu ý
 
@@ -95,4 +97,5 @@ vì đó là chỗ đang thiếu backend thật.
 - Trigger `log_device_change` ghi nhật ký với `actor_id` rỗng khi thiết bị được đổi qua server (vì `auth.uid()` là null).
 - Thanh toán học phí hiện chỉ đánh dấu "đã đóng"; khi tích hợp cổng thanh toán nên xử lý bằng webhook của cổng.
 - Chưa có: push notification, upload file/ảnh, quên mật khẩu tự phục vụ (hiện admin cấp lại mật khẩu).
+- `PUT /teacher/classes/:classId/attendance`: không gửi `checkin_at` thì server ghi giờ hiện tại; gửi `checkin_at: null` thì không ghi giờ vào cổng (app dùng cách này để không ghi đè giờ quét cổng).
 - Chưa có test tự động. Code đã được kiểm tra cú pháp nhưng **chưa chạy thử với Supabase thật**.

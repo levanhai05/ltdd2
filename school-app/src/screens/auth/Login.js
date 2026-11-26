@@ -6,6 +6,7 @@ import { Field } from '../../components/Field';
 import { s, L } from '../../styles';
 import { C, TOP } from '../../theme';
 import { supabase } from '../../lib/supabase';
+import { api } from '../../lib/api';
 
 export function Login({ onLogin, onForgot }) {
   const [show, setShow] = useState(false);
@@ -14,16 +15,15 @@ export function Login({ onLogin, onForgot }) {
   const [pass, setPass] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Lấy profile (role, active) của user đang có session rồi vào app
+  // Lấy profile (role, active) của phiên đang có từ backend rồi vào app
   const enter = async () => {
-    const { data: { user: au } } = await supabase.auth.getUser();
-    if (!au) throw new Error('Phiên đăng nhập không hợp lệ.');
-    const { data: prof, error } = await supabase
-      .from('profiles').select('id, username, full_name, role, active').eq('id', au.id).single();
-    if (error || !prof) throw new Error('Không tìm thấy hồ sơ tài khoản.');
-    if (!prof.active) {
-      await supabase.auth.signOut();
-      throw new Error('Tài khoản đã bị khóa. Vui lòng liên hệ nhà trường.');
+    let prof;
+    try {
+      prof = await api('/auth/me');
+    } catch (e) {
+      // Token không còn hợp lệ hoặc tài khoản bị khóa -> bỏ phiên; lỗi mạng thì giữ phiên để thử lại
+      if (e.status === 401 || e.status === 403) await supabase.auth.signOut();
+      throw e;
     }
     onLogin(prof.role, prof);
   };
@@ -33,10 +33,14 @@ export function Login({ onLogin, onForgot }) {
     if (!u || !pass) { Alert.alert('Thiếu thông tin', 'Vui lòng nhập tài khoản và mật khẩu.'); return; }
     setLoading(true);
     try {
-      const email = u.includes('@') ? u : `${u}@school.local`;
-      const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-      if (error) throw new Error('Sai tài khoản hoặc mật khẩu.');
-      await enter();
+      // Backend tự ghép đuôi @school.local, nên chỉ gửi tên tài khoản (vd gv001)
+      const username = u.endsWith('@school.local') ? u.slice(0, -'@school.local'.length) : u;
+      if (username.includes('@')) throw new Error('Hãy nhập tên tài khoản (ví dụ gv001), không nhập email.');
+      const { session, profile } = await api('/auth/login', { method: 'POST', body: { username, password: pass } });
+      // Đưa phiên vào Supabase client để app tự làm mới token và dùng realtime
+      const { error } = await supabase.auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
+      if (error) throw new Error(error.message);
+      onLogin(profile.role, profile);
     } catch (e) {
       Alert.alert('Đăng nhập thất bại', e.message);
     } finally {

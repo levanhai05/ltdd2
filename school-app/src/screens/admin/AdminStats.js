@@ -4,19 +4,20 @@ import { BackHeader } from '../../components/BackHeader';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { ROLE_NAME } from '../../data/mock';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, summarize, fmtDay } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtDay } from '../../lib/db';
 import { s } from '../../styles';
 import { C } from '../../theme';
 
 export function AdminStats({ onBack }) {
   const { data, loading, error, reload } = useAsync(async () => {
-    const [acc, att] = await Promise.all([supabase.rpc('admin_account_summary'), supabase.rpc('admin_attendance_by_class')]);
-    return { acc: summarize(unwrap(acc)), att: unwrap(att) };
+    const [acc, att] = await Promise.all([api('/admin/summary'), api('/admin/stats/attendance')]);
+    return { acc, day: att.day, att: att.classes };
   });
 
   const acc = data?.acc;
-  const att = (data?.att || []).map(r => ({ cls: r.class_name, total: Number(r.total), ok: Number(r.attended) }));
+  // Chỉ tính học sinh đã được điểm danh; đi muộn vẫn là có mặt
+  const att = (data?.att || []).map(r => ({ cls: r.name, total: r.present + r.late + r.absent, ok: r.present + r.late })).filter(r => r.total > 0);
   const sumTotal = att.reduce((a, r) => a + r.total, 0);
   const avg = sumTotal ? Math.round((att.reduce((a, r) => a + r.ok, 0) / sumTotal) * 100) : 0;
   const pct = r => (r.total ? Math.round((r.ok / r.total) * 100) : 0);
@@ -57,7 +58,7 @@ export function AdminStats({ onBack }) {
 
             <View style={[s.card, { gap: 14 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={s.h2}>Chuyên cần{data.att[0] ? ` ngày ${fmtDay(data.att[0].att_day)}` : ''}</Text>
+                <Text style={s.h2}>Chuyên cần{att.length ? ` ngày ${fmtDay(data.day)}` : ''}</Text>
                 {att.length > 0 && <Text style={{ fontWeight: '700', fontSize: 16, color: C.primary }}>TB {avg}%</Text>}
               </View>
               {att.length === 0 && <Text style={s.mut}>Chưa có dữ liệu điểm danh.</Text>}

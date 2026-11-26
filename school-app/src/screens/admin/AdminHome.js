@@ -8,14 +8,14 @@ import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useHardwareBack } from '../../hooks/useHardwareBack';
 import { useAsync } from '../../hooks/useAsync';
 import { ROLE_NAME } from '../../data/mock';
-import { supabase } from '../../lib/supabase';
-import { unwrap, summarize, fmtWhen, AUDIENCE } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtWhen, AUDIENCE } from '../../lib/db';
 import { AdminStats } from './AdminStats';
 import { AdminLogs } from './AdminLogs';
 import { s } from '../../styles';
 import { C } from '../../theme';
 
-// Thông báo toàn trường: tải danh sách đã gửi từ bảng notices, gửi qua RPC admin_send_notice
+// Thông báo toàn trường: tải danh sách đã gửi và gửi mới qua backend (/notices)
 function AdminAnnounce({ onBack }) {
   const [sent, setSent] = useState([]);
 
@@ -23,10 +23,7 @@ function AdminAnnounce({ onBack }) {
     let alive = true;
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const rows = unwrap(await supabase.from('notices')
-          .select('id, title, body, audience, created_at').eq('author_id', session.user.id)
-          .order('created_at', { ascending: false }).limit(30));
+        const rows = await api('/notices/sent');
         if (alive) setSent(rows.map(n => ({ id: n.id, to: AUDIENCE[n.audience] || 'Toàn trường', title: n.title, content: n.body, when: fmtWhen(n.created_at) })));
       } catch (e) {
         Alert.alert('Không tải được thông báo đã gửi', e.message);
@@ -37,7 +34,7 @@ function AdminAnnounce({ onBack }) {
 
   const onSend = async item => {
     try {
-      const row = unwrap(await supabase.rpc('admin_send_notice', { p_audience: item.target, p_title: item.title, p_body: item.content }));
+      const row = await api('/notices', { method: 'POST', body: { audience: item.target, title: item.title, body: item.content } });
       setSent(list => [{ id: row.id, to: item.to, title: item.title, content: item.content, when: fmtWhen(row.created_at) }, ...list]);
       return true;
     } catch (e) {
@@ -56,12 +53,11 @@ function AdminAnnounce({ onBack }) {
 export function AdminHome({ onLogout, go }) {
   const [view, setView] = useState('home');
   const { data, loading, error, reload } = useAsync(async () => {
-    const [sum, recent] = await Promise.all([
-      supabase.rpc('admin_account_summary'),
-      supabase.from('profiles').select('id, username, full_name, role').neq('role', 'admin')
-        .order('created_at', { ascending: false }).limit(3),
+    const [acc, recent] = await Promise.all([
+      api('/admin/summary'),
+      api('/admin/users', { query: { limit: 3, sort: 'recent' } }),
     ]);
-    return { acc: summarize(unwrap(sum)), recent: unwrap(recent) };
+    return { acc, recent: recent.items };
   });
   const back = useCallback(() => { setView('home'); reload(); }, [reload]);
   useHardwareBack(view !== 'home', back);

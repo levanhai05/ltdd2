@@ -48,6 +48,15 @@ async function contactsOf(user) {
 // GET /api/messages/contacts
 r.get('/contacts', async (req, res) => res.json(await contactsOf(req.user)));
 
+// GET /api/messages/recent?limit=  -> mọi tin nhắn của tôi (cũ -> mới), để dựng danh sách hội thoại
+r.get('/recent', async (req, res) => {
+  const { limit } = parse(z.object({ limit: z.coerce.number().int().min(1).max(500).default(500) }), req.query);
+  const me = req.user.id;
+  const rows = unwrap(await admin.from('messages').select('id, sender_id, receiver_id, body, created_at')
+    .or(`sender_id.eq.${me},receiver_id.eq.${me}`).order('id', { ascending: false }).limit(limit));
+  res.json(rows.reverse());
+});
+
 // GET /api/messages/with/:userId?limit=&before=<id>  (cũ -> mới)
 r.get('/with/:userId', async (req, res) => {
   const other = parse(z.object({ userId: uuid }), req.params).userId;

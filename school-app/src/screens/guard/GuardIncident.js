@@ -9,8 +9,8 @@ import { TextArea } from '../../components/TextArea';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { INCIDENT_TYPES } from '../../data/roleMock';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, fmtWhen } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtWhen } from '../../lib/db';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -22,9 +22,7 @@ export function GuardIncident({ profile, onBack }) {
   const [desc, setDesc] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const { data, loading, error, reload } = useAsync(async () =>
-    unwrap(await supabase.from('incidents').select('id, kind, place, description, resolved, created_at')
-      .order('created_at', { ascending: false }).limit(LIMIT)));
+  const { data, loading, error, reload } = useAsync(() => api('/guard/incidents', { query: { limit: LIMIT } }));
   const incidents = data || [];
   const open = incidents.filter(i => !i.resolved).length;
 
@@ -32,7 +30,7 @@ export function GuardIncident({ profile, onBack }) {
     if (!place.trim() || !desc.trim()) { Alert.alert('Thiếu thông tin', 'Vui lòng nhập vị trí và mô tả sự cố.'); return; }
     setBusy(true);
     try {
-      unwrap(await supabase.from('incidents').insert({ kind: type, place: place.trim(), description: desc.trim(), guard_id: profile.id }));
+      await api('/guard/incidents', { method: 'POST', body: { kind: type, place: place.trim(), description: desc.trim() } });
       setPlace(''); setDesc(''); setType('device');
       await reload();
       Alert.alert('Đã gửi báo cáo', 'Sự cố đã được ghi nhận.');
@@ -46,8 +44,7 @@ export function GuardIncident({ profile, onBack }) {
   const toggle = async i => {
     setBusy(true);
     try {
-      const rows = unwrap(await supabase.from('incidents').update({ resolved: !i.resolved }).eq('id', i.id).select('id'));
-      if (!rows.length) throw new Error('Bạn không có quyền cập nhật sự cố này.');
+      await api(`/guard/incidents/${i.id}`, { method: 'PATCH', body: { resolved: !i.resolved } });
       await reload();
     } catch (e) {
       Alert.alert('Không cập nhật được', e.message);

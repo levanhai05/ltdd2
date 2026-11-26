@@ -6,8 +6,7 @@ import { Tiles } from '../../components/Tiles';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
 import { useHardwareBack } from '../../hooks/useHardwareBack';
-import { supabase } from '../../lib/supabase';
-import { loadTeaching, focusLesson, hm, roomLabel } from '../../lib/teacher';
+import { loadTeaching, loadRoster, focusLesson, hm, roomLabel } from '../../lib/teacher';
 import { TeacherClass } from './TeacherClass';
 import { TeacherGrades } from './TeacherGrades';
 import { TeacherHomework } from './TeacherHomework';
@@ -20,11 +19,7 @@ export function TeacherHome({ onLogout, go, profile }) {
   const { data, loading, error, reload } = useAsync(async () => {
     const t = await loadTeaching(profile.id);
     let size = null;
-    if (t.homeroom) {
-      const { count, error: e } = await supabase.from('students').select('id', { count: 'exact', head: true }).eq('class_id', t.homeroom.id);
-      if (e) throw new Error(e.message);
-      size = count;
-    }
+    if (t.homeroom) size = (await loadRoster(t.homeroom.id, false)).students.length;
     return { ...t, size };
   }, [profile.id]);
   const back = useCallback(() => setView('home'), []);

@@ -7,8 +7,8 @@ import { Field } from '../../components/Field';
 import { Pills } from '../../components/Pills';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, fmtWhen } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtWhen } from '../../lib/db';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -23,9 +23,7 @@ export function GuardVisitors({ profile, onBack }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const { data, loading, error, reload } = useAsync(async () =>
-    unwrap(await supabase.from('visitors').select('id, name, visit_to, reason, in_at, out_at')
-      .order('in_at', { ascending: false }).limit(LIMIT)));
+  const { data, loading, error, reload } = useAsync(() => api('/guard/visitors', { query: { filter: 'all', limit: LIMIT } }));
   const visitors = data || [];
   const list = visitors.filter(v => f === 'all' || (f === 'in' ? !v.out_at : !!v.out_at));
   const inside = visitors.filter(v => !v.out_at).length;
@@ -34,9 +32,10 @@ export function GuardVisitors({ profile, onBack }) {
     if (!name.trim()) { Alert.alert('Thiếu thông tin', 'Vui lòng nhập họ tên khách.'); return; }
     setBusy(true);
     try {
-      unwrap(await supabase.from('visitors').insert({
-        name: name.trim(), visit_to: visit.trim() || 'Chưa ghi', reason: reason.trim() || null, guard_id: profile.id,
-      }));                                               // giờ vào do DB tự ghi (in_at = now())
+      await api('/guard/visitors', {
+        method: 'POST',
+        body: { name: name.trim(), visit_to: visit.trim() || 'Chưa ghi', reason: reason.trim() || null },
+      });                                                // giờ vào do DB tự ghi (in_at = now())
       setName(''); setVisit(''); setReason(''); setAdding(false); setF('in');
       await reload();
     } catch (e) {
@@ -49,9 +48,8 @@ export function GuardVisitors({ profile, onBack }) {
   const checkout = async id => {
     setBusy(true);
     try {
-      const rows = unwrap(await supabase.from('visitors').update({ out_at: new Date().toISOString() })
-        .eq('id', id).is('out_at', null).select('id'));
-      if (!rows.length) Alert.alert('Đã cập nhật', 'Khách này đã được ghi nhận ra trước đó.');
+      const r = await api(`/guard/visitors/${id}/checkout`, { method: 'PATCH' });
+      if (!r.updated) Alert.alert('Đã cập nhật', 'Khách này đã được ghi nhận ra trước đó.');
       await reload();
     } catch (e) {
       Alert.alert('Không ghi nhận được', e.message);

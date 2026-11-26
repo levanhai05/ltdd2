@@ -77,15 +77,22 @@ r.get('/patrol/checkpoints', async (req, res) => {
   res.json(unwrap(await admin.from('patrol_checkpoints').select('id, name').order('sort_order').order('id')));
 });
 
-// GET /api/guard/patrol/logs?day=YYYY-MM-DD  (mặc định hôm nay, của chính tôi)
+// GET /api/guard/patrol/logs?day=YYYY-MM-DD&limit=   (mặc định hôm nay, của chính tôi)
+// GET /api/guard/patrol/logs?recent=true&limit=10     (các lượt gần nhất của mọi bảo vệ, không giới hạn ngày)
 r.get('/patrol/logs', async (req, res) => {
-  const { day } = parse(z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(todayYMD()) }), req.query);
-  // Mốc ngày tính theo giờ Việt Nam (UTC+7)
-  const from = new Date(`${day}T00:00:00+07:00`);
-  const to = new Date(from.getTime() + 86400000);
-  res.json(unwrap(await admin.from('patrol_logs').select('id, checkpoint, checked_at')
-    .eq('guard_id', req.user.id).gte('checked_at', from.toISOString()).lt('checked_at', to.toISOString())
-    .order('checked_at', { ascending: false })));
+  const q = parse(z.object({
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(todayYMD()),
+    recent: z.enum(['true', 'false']).default('false'),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  }), req.query);
+  let b = admin.from('patrol_logs').select('id, checkpoint, checked_at').order('checked_at', { ascending: false }).limit(q.limit);
+  if (q.recent === 'false') {
+    // Mốc ngày tính theo giờ Việt Nam (UTC+7)
+    const from = new Date(`${q.day}T00:00:00+07:00`);
+    const to = new Date(from.getTime() + 86400000);
+    b = b.eq('guard_id', req.user.id).gte('checked_at', from.toISOString()).lt('checked_at', to.toISOString());
+  }
+  res.json(unwrap(await b));
 });
 
 // POST /api/guard/patrol  { checkpoints: ["Cổng chính", ...] }  -> giờ ghi nhận do server đặt

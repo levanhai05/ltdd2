@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Field } from '../../components/Field';
 import { Header } from '../../components/Header';
 import { ROLE_NAME } from '../../data/mock';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
+import { api } from '../../lib/api';
 import { L } from '../../styles';
 import { C } from '../../theme';
 
@@ -22,12 +21,15 @@ export function AdminCreate({ go }) {
     setLoading(true);
     try {
       // Tên đăng nhập + mật khẩu tạm do server sinh, trả về để admin gửi cho người dùng
-      const r = unwrap(await supabase.rpc('admin_create_user', {
-        p_role: role,
-        p_full_name: name.trim(),
-        p_phone: phone.trim() || null,
-        p_student_code: role === 'parent' ? code.trim() || null : null,
-      }));
+      const r = await api('/admin/users', {
+        method: 'POST',
+        body: {
+          role,
+          full_name: name.trim(),
+          phone: phone.trim() || null,
+          student_code: role === 'parent' ? code.trim() || null : null,
+        },
+      });
       Alert.alert('Đã cấp tài khoản', `Tài khoản: ${r.username}\nMật khẩu tạm: ${r.password}\n\nHãy gửi thông tin này cho người dùng.`);
       setName(''); setPhone(''); setCode('');
       go(1);

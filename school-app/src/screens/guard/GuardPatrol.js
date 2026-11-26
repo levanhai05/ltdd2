@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Header } from '../../components/Header';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, fmtWhen } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtWhen } from '../../lib/db';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -13,11 +13,8 @@ export function GuardPatrol({ profile }) {
   const [done, setDone] = useState({});          // { [id điểm tuần tra]: true }
   const [busy, setBusy] = useState(false);
 
-  const points = useAsync(async () =>
-    unwrap(await supabase.from('patrol_checkpoints').select('id, name').order('sort_order').order('id')));
-  const logs = useAsync(async () =>
-    unwrap(await supabase.from('patrol_logs').select('id, checkpoint, checked_at')
-      .order('checked_at', { ascending: false }).limit(10)));
+  const points = useAsync(() => api('/guard/patrol/checkpoints'));
+  const logs = useAsync(() => api('/guard/patrol/logs', { query: { recent: 'true', limit: 10 } }));
 
   const items = points.data || [];
   const ticked = items.filter(p => done[p.id]);
@@ -28,8 +25,7 @@ export function GuardPatrol({ profile }) {
   const commit = async () => {
     setBusy(true);
     try {
-      const at = new Date().toISOString();
-      unwrap(await supabase.from('patrol_logs').insert(ticked.map(p => ({ guard_id: profile.id, checkpoint: p.name, checked_at: at }))));
+      await api('/guard/patrol', { method: 'POST', body: { checkpoints: ticked.map(p => p.name) } });   // giờ ghi nhận do server đặt
       setDone({});
       await logs.reload();
       Alert.alert('Đã lưu', `Đã ghi nhận ${n} mục tuần tra.`);

@@ -5,8 +5,7 @@ import { Header } from '../../components/Header';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { ROLE_NAME } from '../../data/mock';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
+import { api } from '../../lib/api';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -16,10 +15,8 @@ export function AdminAccounts() {
   const [f, setF] = useState('all');
   const [busy, setBusy] = useState(null);
   const { data: list, loading, error, reload } = useAsync(async () => {
-    let q = supabase.from('profiles').select('id, username, full_name, role, active')
-      .neq('role', 'admin').order('username').limit(LIMIT);
-    if (f !== 'all') q = q.eq('role', f);
-    return unwrap(await q);
+    const r = await api('/admin/users', { query: { role: f === 'all' ? undefined : f, limit: LIMIT } });
+    return r.items;
   }, [f]);
 
   // Chạy 1 thao tác trên tài khoản a, khóa nút trong lúc chờ, xong thì tải lại danh sách
@@ -30,7 +27,7 @@ export function AdminAccounts() {
     finally { setBusy(null); }
   };
 
-  const setActive = (a, active) => run(a, async () => unwrap(await supabase.rpc('admin_set_active', { p_user: a.id, p_active: active })));
+  const setActive = (a, active) => run(a, () => api(`/admin/users/${a.id}/active`, { method: 'PATCH', body: { active } }));
 
   const toggle = a => {
     if (!a.active) return setActive(a, true);
@@ -45,8 +42,8 @@ export function AdminAccounts() {
     {
       text: 'Cấp lại',
       onPress: () => run(a, async () => {
-        const pw = unwrap(await supabase.rpc('admin_reset_password', { p_user: a.id }));
-        Alert.alert('Mật khẩu tạm mới', `Tài khoản: ${a.username}\nMật khẩu: ${pw}`);
+        const r = await api(`/admin/users/${a.id}/reset-password`, { method: 'POST' });
+        Alert.alert('Mật khẩu tạm mới', `Tài khoản: ${r.username}\nMật khẩu: ${r.password}`);
       }),
     },
   ]);

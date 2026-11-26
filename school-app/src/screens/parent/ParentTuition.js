@@ -5,9 +5,7 @@ import { BackHeader } from '../../components/BackHeader';
 import { Chip } from '../../components/Chip';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
-import { loadFees, fmtVND, fmtDM, daysLeft } from '../../lib/parent';
+import { loadFees, payFees, fmtVND, fmtDM, daysLeft } from '../../lib/parent';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -22,7 +20,7 @@ export function ParentTuition({ student, onBack }) {
   const pay = async ids => {
     setBusy(true);
     try {
-      unwrap(await supabase.rpc('parent_pay_fees', { p_ids: ids }));
+      await payFees(ids);
       await reload();
     } catch (e) { Alert.alert('Thanh toán thất bại', e.message); }
     finally { setBusy(false); }

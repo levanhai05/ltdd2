@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { admin } from '../lib/supabase.js';
-import { unwrap } from '../lib/db.js';
+import { unwrap, fetchAll } from '../lib/db.js';
 import { HttpError } from '../lib/errors.js';
 import { parse, z, id, ymd, hhmm, idParam } from '../lib/validate.js';
 import { teacherScope, assertTeacherOfClass } from '../lib/school.js';
@@ -56,7 +56,8 @@ r.put('/classes/:classId/attendance', async (req, res) => {
 
   const rows = b.records.map(x => ({
     student_id: x.student_id, day: b.day, status: x.status,
-    checkin_at: x.status === 'absent' ? null : (x.checkin_at || nowHM()),
+    // không gửi checkin_at -> lấy giờ hiện tại; gửi null rõ ràng -> không ghi giờ vào cổng
+    checkin_at: x.status === 'absent' ? null : (x.checkin_at === undefined ? nowHM() : x.checkin_at),
     note: x.note || null,
   }));
   unwrap(await admin.from('attendance').upsert(rows, { onConflict: 'student_id,day' }));
@@ -112,13 +113,24 @@ r.delete('/grades/:id', async (req, res) => {
 });
 
 // ---------- Bài tập ----------
-// GET /api/teacher/homework?class_id=
+// GET /api/teacher/homework?class_id=&limit=  (mới giao trước) -> kèm submitted (số bài đã nộp) và total (sĩ số lớp)
 r.get('/homework', async (req, res) => {
-  const q = parse(z.object({ class_id: id.optional() }), req.query);
+  const q = parse(z.object({ class_id: id.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }), req.query);
   let b = admin.from('homework').select('id, class_id, subject_id, title, content, due_date, created_at, classes(name), subjects(name)')
-    .eq('teacher_id', req.user.id).order('due_date', { ascending: false });
+    .eq('teacher_id', req.user.id).order('created_at', { ascending: false }).limit(q.limit);
   if (q.class_id) b = b.eq('class_id', q.class_id);
-  res.json(unwrap(await b));
+  const rows = unwrap(await b);
+  const hwIds = rows.map(h => h.id);
+  const classIds = [...new Set(rows.map(h => h.class_id))];
+  const [subs, studs] = await Promise.all([
+    hwIds.length ? fetchAll(() => admin.from('homework_submissions').select('homework_id, student_id')
+      .in('homework_id', hwIds).eq('done', true).order('homework_id').order('student_id')) : [],
+    classIds.length ? fetchAll(() => admin.from('students').select('id, class_id').in('class_id', classIds).order('id')) : [],
+  ]);
+  const submitted = new Map(), total = new Map();
+  subs.forEach(s => submitted.set(s.homework_id, (submitted.get(s.homework_id) || 0) + 1));
+  studs.forEach(s => total.set(s.class_id, (total.get(s.class_id) || 0) + 1));
+  res.json(rows.map(h => ({ ...h, submitted: submitted.get(h.id) || 0, total: total.get(h.class_id) || 0 })));
 });
 
 // POST /api/teacher/homework  { class_id, subject_id, title, content?, due_date }

@@ -3,9 +3,7 @@ import { View, Text, ScrollView, RefreshControl } from 'react-native';
 import { Header } from '../../components/Header';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
-import { loadStudent, avgOf, rank } from '../../lib/parent';
+import { loadStudent, loadGrades, rank } from '../../lib/parent';
 import { SEMESTER } from '../../lib/teacher';
 import { s } from '../../styles';
 import { C } from '../../theme';
@@ -15,14 +13,12 @@ const KIND_ORDER = ['oral', 'm15', 'p1', 'mid', 'final'];
 
 export function ParentGrades({ profile }) {
   const { data, loading, error, reload } = useAsync(async () => {
-    const st = await loadStudent(profile.id);
-    const rows = unwrap(await supabase.from('grades').select('id, kind, score, subjects(name)')
-      .eq('student_id', st.id).eq('semester', SEMESTER).order('created_at'));
-    const m = new Map();
-    rows.forEach(r => { const n = r.subjects?.name || 'Môn học'; m.set(n, [...(m.get(n) || []), r]); });
-    const subjects = [...m].map(([name, list]) => ({ name, list, avg: avgOf(list) })).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-    const overall = subjects.length ? subjects.reduce((a, x) => a + x.avg, 0) / subjects.length : null;
-    return { st, subjects, overall };
+    const [st, g] = await Promise.all([loadStudent(), loadGrades(SEMESTER)]);
+    // Server đã tính điểm trung bình có hệ số từng môn và cả kỳ
+    const subjects = g.subjects.filter(x => x.avg != null)
+      .map(x => ({ name: x.subject || 'Môn học', list: x.scores, avg: x.avg }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+    return { st, subjects, overall: g.overall };
   }, [profile.id]);
 
   return (

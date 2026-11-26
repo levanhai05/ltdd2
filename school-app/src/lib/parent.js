@@ -1,17 +1,13 @@
 // Tiện ích dùng chung cho phụ huynh / học sinh (tài khoản role = 'parent')
-import { supabase } from './supabase';
-import { unwrap } from './db';
+import { api } from './api';
 import { p2, todayYMD } from './teacher';
 
 export { p2, todayYMD };
 
-// Học sinh gắn với tài khoản + lớp + GVCN + tuyến xe/trạm
-export async function loadStudent(uid) {
-  const st = unwrap(await supabase.from('students')
-    .select('id, code, full_name, class_id, bus_route_id, bus_stop_id, classes(name, homeroom_id)')
-    .eq('account_id', uid).maybeSingle());
-  if (!st) throw new Error('Tài khoản chưa được gắn với học sinh nào. Vui lòng liên hệ nhà trường.');
-  return st;
+// Học sinh gắn với tài khoản + lớp + GVCN + tuyến xe/trạm (uid không cần nữa: server lấy theo token)
+export async function loadStudent() {
+  const { class_name, homeroom, ...st } = await api('/parent/student');
+  return { ...st, classes: { name: class_name, homeroom_id: homeroom?.id ?? null }, homeroom };
 }
 
 // "2026-11-25" -> "25/11"
@@ -34,108 +30,50 @@ export const avgOf = rows => {
   return w ? rows.reduce((a, r) => a + Number(r.score) * (WEIGHT[r.kind] || 1), 0) / w : null;
 };
 
-// Thời khóa biểu của lớp
-export async function loadClassLessons(classId) {
-  return unwrap(await supabase.from('lessons')
-    .select('id, weekday, period, start_time, room, subjects(name), profiles:teacher_id(full_name)')
-    .eq('class_id', classId).order('weekday').order('period'));
-}
+// Thời khóa biểu của lớp (server lấy lớp của học sinh theo token)
+export const loadClassLessons = () => api('/parent/schedule');
 
 // Tiết đang học / sắp tới hôm nay (dùng lại logic của giáo viên)
 export { focusLesson, hm, roomLabel } from './teacher';
 
 // ---------- Bài tập ----------
-// Bài tập của lớp + trạng thái nộp của học sinh (homework_submissions)
-export async function loadHomework(student) {
-  const [hw, subs] = await Promise.all([
-    supabase.from('homework')
-      .select('id, title, content, due_date, subjects(name), profiles:teacher_id(full_name)')
-      .eq('class_id', student.class_id).order('due_date'),
-    supabase.from('homework_submissions').select('homework_id, done').eq('student_id', student.id),
-  ]);
-  const done = Object.fromEntries(unwrap(subs).map(r => [r.homework_id, r.done]));
-  return unwrap(hw).map(h => ({
-    id: h.id, title: h.title, content: h.content, due: h.due_date,
-    subject: h.subjects?.name || '', teacher: h.profiles?.full_name || '', done: !!done[h.id],
-  }));
-}
+// Bài tập của lớp + trạng thái nộp của học sinh
+export const loadHomework = () => api('/parent/homework');
 
-export async function setHomeworkDone(homeworkId, studentId, done) {
-  unwrap(await supabase.from('homework_submissions').upsert(
-    { homework_id: homeworkId, student_id: studentId, done, submitted_at: done ? new Date().toISOString() : null },
-    { onConflict: 'homework_id,student_id' }));
-}
+export const setHomeworkDone = (homeworkId, studentId, done) =>
+  api(`/parent/homework/${homeworkId}`, { method: 'PUT', body: { done } });
 
 // ---------- Thông báo ----------
-// Thông báo dành cho HS/PH: toàn trường, đúng đối tượng, đúng lớp
-export async function loadNotices(uid, student) {
-  const [nt, rd] = await Promise.all([
-    supabase.from('notices').select('*').order('created_at', { ascending: false }).limit(60),
-    supabase.from('notice_reads').select('notice_id').eq('user_id', uid),
-  ]);
-  const read = new Set(unwrap(rd).map(r => r.notice_id));
-  return unwrap(nt)
-    .filter(n => (!n.audience || ['all', 'hs', 'ph'].includes(n.audience)) && (!n.class_id || n.class_id === student.class_id))
-    .map(n => ({ id: n.id, tag: n.tag, title: n.title, body: n.body, date: fmtDM(toYMD(new Date(n.created_at))), read: read.has(n.id) }));
+// Thông báo dành cho HS/PH: server đã lọc toàn trường, đúng đối tượng, đúng lớp
+export async function loadNotices() {
+  const rows = await api('/notices', { query: { limit: 60 } });
+  return rows.map(n => ({ id: n.id, tag: n.tag, title: n.title, body: n.body, date: fmtDM(toYMD(new Date(n.created_at))), read: n.read }));
 }
 
 export async function markNoticesRead(uid, ids) {
   if (!ids.length) return;
-  unwrap(await supabase.from('notice_reads').upsert(ids.map(id => ({ notice_id: id, user_id: uid })), { onConflict: 'notice_id,user_id', ignoreDuplicates: true }));
+  await api('/notices/read', { method: 'POST', body: { ids } });
 }
 
 // ---------- Học phí ----------
-export async function loadFees(studentId) {
-  return unwrap(await supabase.from('fees').select('id, title, amount, due_date, paid, paid_at')
-    .eq('student_id', studentId).order('due_date'));
-}
+export const loadFees = () => api('/parent/fees');
+export const payFees = ids => api('/parent/fees/pay', { method: 'POST', body: { ids } });
 export const fmtVND = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' đ';
 
 // ---------- Xin nghỉ ----------
-export async function loadLeaves(studentId) {
-  return unwrap(await supabase.from('leave_requests')
-    .select('id, from_date, days, reason, note, status').eq('student_id', studentId)
-    .order('created_at', { ascending: false }));
-}
+export const loadLeaves = () => api('/parent/leaves');
+export const createLeave = b => api('/parent/leaves', { method: 'POST', body: b });
+export const cancelLeave = id => api(`/parent/leaves/${id}`, { method: 'DELETE' });
 
 // ---------- Điểm danh ----------
-export async function loadAttendance(studentId, limit = 30) {
-  return unwrap(await supabase.from('attendance').select('id, day, status, checkin_at, note')
-    .eq('student_id', studentId).order('day', { ascending: false }).limit(limit));
-}
+export const loadAttendance = (studentId, limit = 30) => api('/parent/attendance', { query: { limit } });
+
+// ---------- Điểm số ----------
+export const loadGrades = semester => api('/parent/grades', { query: { semester } });
 
 // ---------- Xe đưa đón ----------
-const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-export async function loadBus(student) {
-  if (!student.bus_route_id) return null;
-  const [r, stops, trips, rides] = await Promise.all([
-    supabase.from('bus_routes').select('name, plate, driver, phone').eq('id', student.bus_route_id).single(),
-    supabase.from('bus_stops').select('id, name, seq, am_time, pm_time').eq('route_id', student.bus_route_id).order('seq'),
-    supabase.from('bus_trips').select('trip, state, status, note').eq('route_id', student.bus_route_id),
-    supabase.from('bus_rides').select('trip, riding').eq('student_id', student.id).eq('day', todayYMD()),
-  ]);
-  const route = unwrap(r), st = unwrap(stops), tr = unwrap(trips);
-  // bus_rides là bảng bổ sung (parent.sql); nếu chưa chạy thì mặc định "có đi xe"
-  const ride = rides.error ? { am: true, pm: true } : { am: true, pm: true, ...Object.fromEntries((rides.data || []).map(x => [x.trip, x.riding])) };
-  const now = new Date(); const mins = now.getHours() * 60 + now.getMinutes();
-  const build = kind => {
-    const trip = tr.find(t => t.trip === kind);
-    const key = kind === 'am' ? 'am_time' : 'pm_time';
-    const list = st.filter(x => x[key]).sort((a, b) => a[key].localeCompare(b[key]));
-    let firstNext = -1;
-    if (trip?.state === 'current') firstNext = list.findIndex(x => toMin(x[key]) > mins);
-    return {
-      state: trip?.state || 'next', status: trip?.status || '', note: trip?.note || '',
-      stops: list.map((x, i) => ({
-        name: x.name, time: x[key].slice(0, 5), mine: x.id === student.bus_stop_id,
-        state: trip?.state === 'done' ? 'done' : trip?.state === 'next' || !trip ? 'next'
-          : firstNext === -1 ? 'done' : i < firstNext - 1 ? 'done' : i === firstNext - 1 ? 'current' : 'next',
-      })),
-    };
-  };
-  return { route, trips: { am: build('am'), pm: build('pm') }, ride };
-}
+// null nếu học sinh chưa gán tuyến xe; ngược lại { route, trips: { am, pm }, ride }
+export const loadBus = () => api('/parent/bus');
 
-export async function setRide(studentId, trip, riding) {
-  unwrap(await supabase.from('bus_rides').upsert({ student_id: studentId, day: todayYMD(), trip, riding }, { onConflict: 'student_id,day,trip' }));
-}
+export const setRide = (studentId, trip, riding) =>
+  api('/parent/bus/ride', { method: 'PUT', body: { trip, riding } });

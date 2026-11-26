@@ -9,29 +9,22 @@ import { useHardwareBack } from '../../hooks/useHardwareBack';
 import { useAsync } from '../../hooks/useAsync';
 import { useDevices } from '../../hooks/useDevices';
 import { DEV } from '../../data/mock';
-import { supabase } from '../../lib/supabase';
+import { api } from '../../lib/api';
 import { GuardVisitors } from './GuardVisitors';
 import { GuardIncident } from './GuardIncident';
 import { GuardEmergency } from './GuardEmergency';
 import { s } from '../../styles';
 import { C } from '../../theme';
 
-// Đếm số dòng khớp điều kiện (không tải dữ liệu về)
-async function countRows(q) {
-  const { count, error } = await q;
-  if (error) throw new Error(error.message);
-  return count || 0;
-}
-
 export function GuardHome({ onLogout, go, profile }) {
   const [view, setView] = useState('home');
   const { areas, loading: devLoading, error: devError, reload: devReload, turnOffAll } = useDevices();
   const { data, loading, error, reload } = useAsync(async () => {
     const [inside, open] = await Promise.all([
-      countRows(supabase.from('visitors').select('id', { count: 'exact', head: true }).is('out_at', null)),
-      countRows(supabase.from('incidents').select('id', { count: 'exact', head: true }).eq('resolved', false)),
+      api('/guard/visitors', { query: { filter: 'in', limit: 200 } }),
+      api('/guard/incidents', { query: { resolved: 'false', limit: 200 } }),
     ]);
-    return { inside, open };
+    return { inside: inside.length, open: open.length };
   });
   const back = useCallback(() => { setView('home'); reload(); }, [reload]);
   useHardwareBack(view !== 'home', back);

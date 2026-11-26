@@ -5,9 +5,7 @@ import { Pills } from '../../components/Pills';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { GRADE_TYPES } from '../../data/roleMock';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
-import { loadTeaching, teachingClasses, subjectsOf, SEMESTER } from '../../lib/teacher';
+import { loadTeaching, teachingClasses, subjectsOf, loadClassGrades, addGrade, updateGrade, deleteGrade, SEMESTER } from '../../lib/teacher';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -34,13 +32,7 @@ export function TeacherGrades({ profile, onBack }) {
   // Học sinh của lớp + điểm đã nhập của môn này (lấy bản ghi mới nhất cho mỗi học sinh/loại điểm)
   const grades = useAsync(async () => {
     if (!clsId || !subjId) return null;
-    const students = unwrap(await supabase.from('students').select('id, code, full_name').eq('class_id', clsId).order('code'));
-    const rows = students.length ? unwrap(await supabase.from('grades')
-      .select('id, student_id, kind, score')
-      .eq('subject_id', subjId).eq('semester', SEMESTER).in('student_id', students.map(x => x.id))
-      .order('created_at', { ascending: false })) : [];
-    const byKey = {};
-    rows.forEach(g => { const k = `${g.student_id}:${g.kind}`; if (!byKey[k]) byKey[k] = g; });
+    const { students, byKey } = await loadClassGrades(clsId, subjId);
     return { students, byKey, clsId, subjId };
   }, [clsId, subjId]);
   const g = grades.data && grades.data.clsId === clsId && grades.data.subjId === subjId ? grades.data : null;
@@ -57,14 +49,18 @@ export function TeacherGrades({ profile, onBack }) {
   const commit = async ({ ins, upd, del }) => {
     setSaving(true);
     try {
-      if (ins.length) unwrap(await supabase.from('grades').insert(ins));
-      for (const u of upd) unwrap(await supabase.from('grades').update({ score: u.score, teacher_id: profile.id }).eq('id', u.id));
-      if (del.length) unwrap(await supabase.from('grades').delete().in('id', del));
+      // Server nhận từng điểm một nên gửi song song cho nhanh
+      await Promise.all([
+        ...ins.map(addGrade),
+        ...upd.map(u => updateGrade(u.id, u.score)),
+        ...del.map(deleteGrade),
+      ]);
       setEdits(e => ({ ...e, [type]: {} }));
       await grades.reload();
       Alert.alert('Đã lưu', `Đã lưu điểm ${label.toLowerCase()}: thêm ${ins.length}, sửa ${upd.length}, xóa ${del.length}.`);
     } catch (e) {
       Alert.alert('Không lưu được', e.message);
+      grades.reload();                                  // một phần có thể đã lưu: tải lại để hiển thị đúng
     } finally {
       setSaving(false);
     }
@@ -78,7 +74,7 @@ export function TeacherGrades({ profile, onBack }) {
       const old = g.byKey[`${st.id}:${type}`];
       if (v === '') { if (old) del.push(old.id); return; }
       const score = round1(v);
-      if (!old) ins.push({ student_id: st.id, subject_id: subjId, kind: type, score, semester: SEMESTER, teacher_id: profile.id });
+      if (!old) ins.push({ student_id: st.id, subject_id: subjId, kind: type, score });
       else if (Number(old.score) !== score) upd.push({ id: old.id, score });
     });
     if (!ins.length && !upd.length && !del.length) { Alert.alert('Không có thay đổi', 'Chưa có điểm nào được thêm hoặc sửa.'); return; }

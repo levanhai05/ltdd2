@@ -8,9 +8,8 @@ import { Pills } from '../../components/Pills';
 import { TextArea } from '../../components/TextArea';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, fmtDay } from '../../lib/db';
-import { loadTeaching, teachingClasses, subjectsOf, p2 } from '../../lib/teacher';
+import { fmtDay } from '../../lib/db';
+import { loadTeaching, teachingClasses, subjectsOf, loadAssigned, createHomework, deleteHomework, p2 } from '../../lib/teacher';
 import { s, L } from '../../styles';
 import { C } from '../../theme';
 
@@ -42,22 +41,12 @@ export function TeacherHomework({ profile, onBack }) {
   const subjects = subjectsOf(lessons, clsId);
   const subjId = subjects.find(([id]) => id === subj)?.[0] ?? subjects[0]?.[0] ?? null;
 
-  // Bài đã giao: kèm số bài đã nộp (homework_submissions.done) và sĩ số lớp
+  // Bài đã giao: server trả kèm số bài đã nộp và sĩ số lớp
   const list = useAsync(async () => {
-    const rows = unwrap(await supabase.from('homework')
-      .select('id, class_id, title, content, due_date, classes(name), subjects(name), homework_submissions(count)')
-      .eq('teacher_id', profile.id).eq('homework_submissions.done', true)
-      .order('created_at', { ascending: false }).limit(30));
-    const classIds = [...new Set(rows.map(r => r.class_id))];
-    const sizes = {};
-    await Promise.all(classIds.map(async id => {
-      const { count, error } = await supabase.from('students').select('id', { count: 'exact', head: true }).eq('class_id', id);
-      if (error) throw new Error(error.message);
-      sizes[id] = count || 0;
-    }));
+    const rows = await loadAssigned();
     return rows.map(r => ({
       id: r.id, cls: r.classes?.name, subject: r.subjects?.name, title: r.title, content: r.content, due: fmtDay(r.due_date),
-      submitted: r.homework_submissions?.[0]?.count || 0, total: sizes[r.class_id] || 0,
+      submitted: r.submitted, total: r.total,
     }));
   }, [profile.id]);
 
@@ -68,10 +57,10 @@ export function TeacherHomework({ profile, onBack }) {
     if (!clsId || !subjId) { Alert.alert('Chưa chọn lớp', 'Bạn chưa có lớp nào trong thời khóa biểu.'); return; }
     setBusy(true);
     try {
-      unwrap(await supabase.from('homework').insert({
-        class_id: clsId, subject_id: subjId, teacher_id: profile.id,
+      await createHomework({
+        class_id: clsId, subject_id: subjId,
         title: title.trim(), content: content.trim() || null, due_date: ymd,
-      }));
+      });
       const name = classes.find(([id]) => id === clsId)[1];
       setTitle(''); setDue(''); setContent('');
       await list.reload();
@@ -90,7 +79,7 @@ export function TeacherHomework({ profile, onBack }) {
         text: 'Xóa', style: 'destructive',
         onPress: async () => {
           try {
-            unwrap(await supabase.from('homework').delete().eq('id', a.id).eq('teacher_id', profile.id));
+            await deleteHomework(a.id);
             await list.reload();
           } catch (e) { Alert.alert('Không xóa được', e.message); }
         },

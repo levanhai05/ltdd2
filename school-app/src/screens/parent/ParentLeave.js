@@ -8,9 +8,7 @@ import { Pills } from '../../components/Pills';
 import { TextArea } from '../../components/TextArea';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
-import { loadLeaves, fmtDM, toYMD, todayYMD } from '../../lib/parent';
+import { loadLeaves, createLeave, cancelLeave, fmtDM, toYMD, todayYMD } from '../../lib/parent';
 import { LEAVE_STATUS } from '../../data/roleMock';
 import { s, L } from '../../styles';
 
@@ -43,10 +41,10 @@ export function ParentLeave({ student, onBack }) {
     if (ymd < todayYMD()) { Alert.alert('Ngày không hợp lệ', 'Ngày nghỉ không được ở trong quá khứ.'); return; }
     setBusy(true);
     try {
-      unwrap(await supabase.from('leave_requests').insert({
-        student_id: student.id, from_date: ymd, days: Number(days),
+      await createLeave({
+        from_date: ymd, days: Number(days),
         reason: REASONS.find(r => r[0] === reason)[1], note: note.trim() || null,
-      }));
+      });
       setDate(''); setNote(''); setDays('1'); setReason('sick');
       await reload();
       Alert.alert('Đã gửi đơn', 'Đơn xin nghỉ đã gửi tới giáo viên chủ nhiệm.');
@@ -59,8 +57,7 @@ export function ParentLeave({ student, onBack }) {
       { text: 'Giữ lại', style: 'cancel' },
       { text: 'Hủy đơn', style: 'destructive', onPress: async () => {
         try {
-          const rows = unwrap(await supabase.from('leave_requests').delete().eq('id', l.id).eq('status', 'pending').select('id'));
-          if (!rows.length) throw new Error('Đơn đã được xử lý hoặc bạn không có quyền hủy.');
+          await cancelLeave(l.id);
           await reload();
         } catch (e) { Alert.alert('Không hủy được', e.message); reload(); }
       } },

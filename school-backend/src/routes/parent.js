@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { admin } from '../lib/supabase.js';
 import { unwrap } from '../lib/db.js';
 import { HttpError } from '../lib/errors.js';
-import { parse, z, ymd, idParam } from '../lib/validate.js';
+import { parse, z, id, ymd, idParam } from '../lib/validate.js';
 import { getStudentOf } from '../lib/school.js';
 import { todayYMD, nowHM, toMin } from '../lib/dates.js';
 import { avgOf, rank } from '../lib/grades.js';
@@ -106,6 +106,16 @@ r.post('/fees/:id/pay', async (req, res) => {
   res.json(rows[0]);
 });
 
+// POST /api/parent/fees/pay  { ids: [..] }  -> đánh dấu đã đóng nhiều khoản cùng lúc (cùng lưu ý như trên)
+r.post('/fees/pay', async (req, res) => {
+  const { ids } = parse(z.object({ ids: z.array(id).min(1).max(50) }), req.body);
+  const rows = unwrap(await admin.from('fees').update({ paid: true, paid_at: todayYMD() })
+    .in('id', [...new Set(ids)]).eq('student_id', req.student.id).eq('paid', false)
+    .select('id, title, amount, due_date, paid, paid_at'));
+  if (!rows.length) throw new HttpError(409, 'Các khoản phí không tồn tại hoặc đã được đóng');
+  res.json({ paid: rows });
+});
+
 // ---------- Xin nghỉ ----------
 // GET /api/parent/leaves
 r.get('/leaves', async (req, res) => {
@@ -123,6 +133,14 @@ r.post('/leaves', async (req, res) => {
     .insert({ student_id: req.student.id, from_date: b.from_date, days: b.days, reason: b.reason, note: b.note || null })
     .select('id, from_date, days, reason, note, status, created_at').single());
   res.status(201).json(row);
+});
+
+// DELETE /api/parent/leaves/:id  -> hủy đơn của mình khi còn "pending"
+r.delete('/leaves/:id', async (req, res) => {
+  const rows = unwrap(await admin.from('leave_requests').delete()
+    .eq('id', idParam(req)).eq('student_id', req.student.id).eq('status', 'pending').select('id'));
+  if (!rows.length) throw new HttpError(409, 'Đơn đã được xử lý hoặc không tồn tại');
+  res.status(204).end();
 });
 
 // ---------- Xe đưa đón ----------

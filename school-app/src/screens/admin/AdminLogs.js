@@ -6,8 +6,8 @@ import { Pills } from '../../components/Pills';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { LOG_TYPES } from '../../data/roleMock';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap, fmtWhen } from '../../lib/db';
+import { api } from '../../lib/api';
+import { fmtWhen } from '../../lib/db';
 import { s } from '../../styles';
 import { C } from '../../theme';
 
@@ -16,11 +16,7 @@ const ICON = { account: 'person-outline', device: 'bulb-outline', system: 'setti
 export function AdminLogs({ onBack }) {
   const [f, setF] = useState('all');
   const { data: list, loading, error, reload } = useAsync(async () => {
-    let q = supabase.from('activity_logs')
-      .select('id, kind, text, created_at, actor:profiles(username, full_name)')
-      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(100);
-    if (f !== 'all') q = q.eq('kind', f);
-    return unwrap(await q);
+    return api('/admin/logs', { query: { kind: f === 'all' ? undefined : f, limit: 100 } });
   }, [f]);
 
   return (

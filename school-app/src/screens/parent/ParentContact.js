@@ -8,7 +8,7 @@ import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
 import { useHardwareBack } from '../../hooks/useHardwareBack';
 import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
+import { api } from '../../lib/api';
 import { loadStudent, p2 } from '../../lib/parent';
 import { s } from '../../styles';
 import { C } from '../../theme';
@@ -19,26 +19,12 @@ const toMsg = (m, uid) => ({ id: m.id, from: m.sender_id === uid ? 'me' : 'other
 
 // Danh sách giáo viên của học sinh: GVCN + giáo viên các môn có tiết ở lớp
 async function loadContacts(uid) {
-  const st = await loadStudent(uid);
-  const byId = new Map();
-  const rows = unwrap(await supabase.from('lessons')
-    .select('teacher_id, subjects(name), profiles:teacher_id(full_name)').eq('class_id', st.class_id));
-  rows.forEach(r => {
-    const cur = byId.get(r.teacher_id) || { id: r.teacher_id, name: r.profiles?.full_name || 'Giáo viên', subjects: new Set() };
-    if (r.subjects?.name) cur.subjects.add(r.subjects.name);
-    byId.set(r.teacher_id, cur);
-  });
-  if (st.classes?.homeroom_id && !byId.has(st.classes.homeroom_id)) {
-    const p = unwrap(await supabase.from('profiles').select('id, full_name').eq('id', st.classes.homeroom_id).maybeSingle());
-    if (p) byId.set(p.id, { id: p.id, name: p.full_name, subjects: new Set() });
-  }
-  const list = [...byId.values()].map(t => ({
-    id: t.id, name: t.name,
-    role: t.id === st.classes?.homeroom_id ? 'Giáo viên chủ nhiệm' : [...t.subjects].join(', ') || 'Giáo viên',
-  })).sort((a, b) => (b.id === st.classes?.homeroom_id) - (a.id === st.classes?.homeroom_id) || a.name.localeCompare(b.name, 'vi'));
-  const msgs = unwrap(await supabase.from('messages').select('id, sender_id, receiver_id, body, created_at')
-    .or(`sender_id.eq.${uid},receiver_id.eq.${uid}`).order('created_at', { ascending: true }).limit(500)).map(m => toMsg(m, uid));
-  return { student: st, teachers: list, msgs };
+  const [st, contacts, rows] = await Promise.all([loadStudent(), api('/messages/contacts'), api('/messages/recent')]);
+  const list = contacts.map(c => ({
+    id: c.id, name: c.full_name || 'Giáo viên', home: !!c.homeroom,
+    role: c.homeroom ? 'Giáo viên chủ nhiệm' : (c.subjects || []).join(', ') || 'Giáo viên',
+  })).sort((a, b) => b.home - a.home || a.name.localeCompare(b.name, 'vi'));
+  return { student: st, teachers: list, msgs: rows.map(m => toMsg(m, uid)) };
 }
 
 export function ParentContact({ profile }) {
@@ -63,7 +49,7 @@ export function ParentContact({ profile }) {
 
   const send = async (id, text) => {
     try {
-      const row = unwrap(await supabase.from('messages').insert({ sender_id: uid, receiver_id: id, body: text }).select().single());
+      const row = await api('/messages', { method: 'POST', body: { receiver_id: id, body: text } });
       setExtra(list => [...list, toMsg(row, uid)]);
     } catch (e) { Alert.alert('Gửi thất bại', e.message); }
   };

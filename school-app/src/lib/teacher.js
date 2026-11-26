@@ -1,6 +1,5 @@
 // Tiện ích dùng chung cho các màn hình của giáo viên
-import { supabase } from './supabase';
-import { unwrap } from './db';
+import { api } from './api';
 
 export const SEMESTER = 1;          // học kỳ hiện tại (khớp cột grades.semester)
 const LESSON_MIN = 45;              // thời lượng 1 tiết (phút)
@@ -21,16 +20,8 @@ export const roomLabel = r => (!r ? '' : /^\d/.test(r) ? `Phòng ${r}` : r);
 
 const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
-// Tải toàn bộ tiết dạy của giáo viên + lớp chủ nhiệm (nếu có)
-export async function loadTeaching(uid) {
-  const [les, home] = await Promise.all([
-    supabase.from('lessons')
-      .select('id, class_id, subject_id, weekday, period, start_time, room, classes(name), subjects(name)')
-      .eq('teacher_id', uid).order('weekday').order('period'),
-    supabase.from('classes').select('id, name').eq('homeroom_id', uid).maybeSingle(),
-  ]);
-  return { lessons: unwrap(les), homeroom: unwrap(home) };
-}
+// Tải toàn bộ tiết dạy của giáo viên + lớp chủ nhiệm (nếu có) -> { lessons, homeroom }
+export const loadTeaching = () => api('/teacher/teaching');
 
 // Các lớp giáo viên có tiết dạy: [[class_id, tên lớp], ...]
 export function teachingClasses(lessons) {
@@ -64,15 +55,37 @@ export function focusLesson(lessons, now = new Date()) {
   return { today, focus: today.find(l => toMin(l.start_time) > mins) || null, current: false };
 }
 
-// Danh sách học sinh của lớp (+ điểm danh hôm nay nếu withAtt)
+// Danh sách học sinh của lớp (+ điểm danh hôm nay nếu withAtt) -> { students, att: { [studentId]: {status, checkin_at, note} } }
 export async function loadRoster(classId, withAtt = true) {
-  const students = unwrap(await supabase.from('students')
-    .select('id, code, full_name').eq('class_id', classId).order('code'));
-  let att = {};
-  if (withAtt && students.length) {
-    const rows = unwrap(await supabase.from('attendance')
-      .select('student_id, status, checkin_at').eq('day', todayYMD()).in('student_id', students.map(s => s.id)));
-    att = Object.fromEntries(rows.map(a => [a.student_id, a]));
-  }
+  const r = await api(`/teacher/classes/${classId}/roster`, { query: { day: todayYMD() } });
+  const att = {};
+  const students = r.students.map(({ attendance, ...st }) => {
+    if (withAtt && attendance) att[st.id] = attendance;
+    return st;
+  });
   return { students, att };
 }
+
+// Lưu điểm danh: records = [{ student_id, status: 'present'|'late'|'absent', checkin_at? }]
+export const saveAttendance = (classId, day, records) =>
+  api(`/teacher/classes/${classId}/attendance`, { method: 'PUT', body: { day, records } });
+
+// ---------- Điểm ----------
+// Học sinh của lớp + điểm đã nhập của 1 môn. byKey["studentId:kind"] = { id, kind, score } (bản mới nhất)
+export async function loadClassGrades(classId, subjectId) {
+  const r = await api(`/teacher/classes/${classId}/grades`, { query: { subject_id: subjectId, semester: SEMESTER } });
+  const byKey = {};
+  const students = r.students.map(({ grades, ...st }) => {
+    grades.forEach(g => { byKey[`${st.id}:${g.kind}`] = g; });   // điểm sau (mới hơn) ghi đè điểm trước
+    return st;
+  });
+  return { students, byKey };
+}
+export const addGrade = g => api('/teacher/grades', { method: 'POST', body: { ...g, semester: SEMESTER } });
+export const updateGrade = (id, score) => api(`/teacher/grades/${id}`, { method: 'PATCH', body: { score } });
+export const deleteGrade = id => api(`/teacher/grades/${id}`, { method: 'DELETE' });
+
+// ---------- Bài tập ----------
+export const loadAssigned = () => api('/teacher/homework', { query: { limit: 30 } });
+export const createHomework = b => api('/teacher/homework', { method: 'POST', body: b });
+export const deleteHomework = id => api(`/teacher/homework/${id}`, { method: 'DELETE' });

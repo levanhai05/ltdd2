@@ -4,15 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { BackHeader } from '../../components/BackHeader';
 import { Loading, ErrorBox } from '../../components/AsyncStates';
 import { useAsync } from '../../hooks/useAsync';
-import { supabase } from '../../lib/supabase';
-import { unwrap } from '../../lib/db';
+import { api } from '../../lib/api';
 import { s } from '../../styles';
 import { C } from '../../theme';
 
 export function GuardEmergency({ onBack }) {
-  const { data, loading, error, reload } = useAsync(async () =>
-    unwrap(await supabase.from('emergency_contacts').select('id, name, phone, icon')
-      .order('sort_order').order('id')));
+  const { data, loading, error, reload } = useAsync(() => api('/guard/emergency-contacts'));
 
   const call = (name, phone) => {
     const num = (phone || '').replace(/[\s.-]/g, '');
