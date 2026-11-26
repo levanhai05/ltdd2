@@ -1,0 +1,21 @@
+import { Router } from 'express';
+import auth from './auth.js';
+import admin from './admin.js';
+import parent from './parent.js';
+import teacher from './teacher.js';
+import guard from './guard.js';
+import notices from './notices.js';
+import messages from './messages.js';
+import { devices, iot } from './devices.js';
+
+const r = Router();
+r.use('/auth', auth);
+r.use('/admin', admin);
+r.use('/parent', parent);
+r.use('/teacher', teacher);
+r.use('/guard', guard);
+r.use('/notices', notices);
+r.use('/messages', messages);
+r.use('/devices', devices);
+r.use('/iot', iot);
+export default r;
